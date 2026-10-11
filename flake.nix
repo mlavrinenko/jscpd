@@ -34,7 +34,8 @@
           src = ./rust;
           filter = path: type:
             (craneLib.filterCargoSources path type) ||
-            (pkgs.lib.hasSuffix ".html" path && pkgs.lib.hasInfix "/templates/" path);
+            # Files the crates embed with include_str!.
+            pkgs.lib.any (ext: pkgs.lib.hasSuffix ext path) [ ".html" ".md" ".yaml" ];
         };
 
         commonArgs = {
