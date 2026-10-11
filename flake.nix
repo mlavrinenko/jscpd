@@ -48,7 +48,17 @@
           ];
         };
 
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        # buildDepsOnly stubs every path crate, including the [patch] that
+        # stands in for `paste`; keep the real one so dependents still build.
+        dummySrc = craneLib.mkDummySrc {
+          inherit src;
+          extraDummyScript = ''
+            rm -rf $out/patches/paste
+            cp -r --no-preserve=mode ${src}/patches/paste $out/patches/paste
+          '';
+        };
+
+        cargoArtifacts = craneLib.buildDepsOnly (commonArgs // { inherit dummySrc; });
 
         jscpd = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
