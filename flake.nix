@@ -59,7 +59,11 @@
           '';
         };
 
-        cargoArtifacts = craneLib.buildDepsOnly (commonArgs // { inherit dummySrc; });
+        # Without `src`: buildDepsOnly reads only `dummySrc`, and warns when
+        # given both.
+        cargoArtifacts = craneLib.buildDepsOnly (
+          builtins.removeAttrs commonArgs [ "src" ] // { inherit dummySrc; }
+        );
 
         jscpd = craneLib.buildPackage (commonArgs // {
           inherit cargoArtifacts;
