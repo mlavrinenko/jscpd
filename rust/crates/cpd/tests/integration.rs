@@ -2989,6 +2989,63 @@ fn new_only_with_no_new_clone_reports_none_and_passes_the_gate() {
 }
 
 #[test]
+fn merge_baseline_writes_the_three_way_merge_to_ours() {
+    let dir = baseline_tmp_dir("merge");
+    let write = |name: &str, json: &str| {
+        let path = dir.join(name);
+        std::fs::write(&path, json).unwrap();
+        path
+    };
+    let base = write(
+        "base",
+        r#"{"version": 1, "fingerprints": {"a": 1, "b": 1}}"#,
+    );
+    let ours = write(
+        "ours",
+        r#"{"version": 1, "fingerprints": {"a": 1, "b": 1, "c": 1}}"#,
+    );
+    let theirs = write(
+        "theirs",
+        r#"{"version": 1, "fingerprints": {"b": 1, "d": 1}}"#,
+    );
+    let output = run_cpd([
+        "--merge-baseline",
+        base.to_str().unwrap(),
+        ours.to_str().unwrap(),
+        theirs.to_str().unwrap(),
+    ])
+    .expect("cpd binary");
+    assert!(
+        output.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(&ours).unwrap(),
+        "{\n  \"version\": 1,\n  \"fingerprints\": {\n    \"b\": 1,\n    \"c\": 1,\n    \"d\": 1\n  }\n}\n"
+    );
+}
+
+#[test]
+fn merge_baseline_fails_on_a_side_that_is_not_a_baseline() {
+    let dir = baseline_tmp_dir("merge-bad");
+    let ours = dir.join("ours");
+    std::fs::write(&ours, "not json").unwrap();
+    let other = dir.join("other");
+    std::fs::write(&other, r#"{"version": 1, "fingerprints": {}}"#).unwrap();
+    let output = run_cpd([
+        "--merge-baseline",
+        other.to_str().unwrap(),
+        ours.to_str().unwrap(),
+        other.to_str().unwrap(),
+    ])
+    .expect("cpd binary");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("ours"), "names the file: {stderr}");
+}
+
+#[test]
 fn new_only_requires_a_baseline() {
     let output = run_cpd(["--new-only", "--reporters", "silent", "."]).expect("cpd binary");
     assert_eq!(output.status.code(), Some(1));

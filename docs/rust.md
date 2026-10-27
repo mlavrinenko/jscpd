@@ -113,6 +113,7 @@ jscpd scans several paths together, as one project. When one path lies inside an
 | `--report-name` | | Base name of the report files, without the extension: the `json`, `xml`, `csv`, `html`, `markdown`, `sarif` and `edn` reports (e.g. `megalinter-jscpd` writes `megalinter-jscpd.json`). A plain file name; a path, an extension or an empty name is an error. Config key `reportName` | `jscpd-report` |
 | `--baseline` | | Clone baseline file (e.g. `.jscpd-baseline.json`): clones whose fingerprint is absent from it are reported as new. See [Baseline](#baseline) | — |
 | `--update-baseline` | | Rewrite the baseline file from the current run, creating it if missing (requires `--baseline` or `--changed`) | off |
+| `--merge-baseline` | | Git merge driver for a baseline file: `--merge-baseline BASE OURS THEIRS` merges the two sides over their base and writes the result to OURS. See [Baseline](#baseline) | — |
 | `--fail-on-new-clones` | | Exit 1 when more than N new clones are found (`--fail-on-new-clones` alone means N=0; requires `--baseline`, `--baseline-from-ref` or `--changed`) | — |
 | `--new-only` | | Report only the clones absent from the baseline; the statistics stay those of the whole scan (requires `--baseline`, `--baseline-from-ref` or `--changed`). See [Baseline](#baseline) | off |
 | `--fail-on-empty` | | Exit 1 when the scan analyzes no files: the paths exist but nothing matched the `--format`, `--ignore` and `--pattern` filters, or every file was below `--min-tokens`. See [Exit codes](#exit-codes) | off |
@@ -340,6 +341,14 @@ Every reporter lists the clones the baseline accepts beside the new ones. `--new
 `--baseline-from-ref` checks the base ref's tree out into a temporary detached worktree, scans it with the same configuration, and compares fingerprints in memory. It costs a second scan of the corpus; the committed file needs only one. In CI, fetch the ref first (`fetch-depth: 0` or `git fetch origin main`).
 
 New-clone information flows through the reporters: `[NEW]` markers in `console`/`console-full`, per-clone `isNew` plus `newClones` / `newDuplicatedLines` statistics in `json`, level `error` in `sarif`, severity `major` in `codeclimate`, and `jscpd_new_clones` / `jscpd_new_duplicated_lines` gauges in `openmetrics`.
+
+Two branches that each accept a clone add lines next to each other in the baseline file, and git's text merge conflicts on them. `--merge-baseline` is a merge driver that never does: a fingerprint only one side changed takes that side's count, removal included, and one both sides changed takes the larger count. Register it once per checkout and assign it to the file:
+
+```bash
+git config merge.jscpd-baseline.name "jscpd baseline"
+git config merge.jscpd-baseline.driver "jscpd --merge-baseline %O %A %B"
+echo ".jscpd-baseline.json merge=jscpd-baseline" >> .gitattributes
+```
 
 Config file keys: `baseline`, `baselineFromRef`, `failOnNewClones`.
 

@@ -198,6 +198,10 @@ fn run_cli(cli: &Cli) -> Result<(), Exit> {
         print!("{}", cpd_semantic::model_list());
         return Err(Exit(0));
     }
+    if let Some([base, ours, theirs]) = cli.merge_baseline.as_deref() {
+        cpd_reporter::baseline::merge_files(base, ours, theirs).map_err(fatal)?;
+        return Err(Exit(0));
+    }
     if cli.store.is_some() {
         eprintln!(
             "Warning: External stores not supported, use jscpd v4.x instead. --store flag ignored."

@@ -403,6 +403,12 @@ pub struct Cli {
     #[arg(long)]
     pub update_baseline: bool,
 
+    /// Git merge driver for a baseline file: merge OURS and THEIRS over BASE
+    /// fingerprint by fingerprint, write the result to OURS and exit. Register
+    /// it as `jscpd --merge-baseline %O %A %B`
+    #[arg(long, num_args = 3, value_names = ["BASE", "OURS", "THEIRS"])]
+    pub merge_baseline: Option<Vec<PathBuf>>,
+
     /// Exit 1 when more than N new clones are found (default N: 0; requires
     /// --baseline, --baseline-from-ref or --changed)
     #[arg(long, value_name = "N", num_args(0..=1), default_missing_value = "0")]

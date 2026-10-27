@@ -141,7 +141,8 @@ pub fn load(path: &Path) -> Result<BaselineFile, BaselineError> {
 pub fn save(path: &Path, baseline: &BaselineFile) -> Result<(), BaselineError> {
     let display = path.display().to_string();
     // BTreeMap keys serialize sorted; pretty-printing puts one fingerprint per
-    // line so baseline diffs stay reviewable and merge conflicts trivial.
+    // line so baseline diffs stay reviewable; `--merge-baseline` merges two
+    // branches' files without a conflict.
     let content = serde_json::to_string_pretty(baseline).map_err(|e| BaselineError::Parse {
         path: display.clone(),
         error: e.to_string(),
@@ -159,6 +160,50 @@ pub fn save(path: &Path, baseline: &BaselineFile) -> Result<(), BaselineError> {
             error: e,
         }
     })
+}
+
+/// Three-way merge of two baselines that grew from `base`, fingerprint by
+/// fingerprint, so it never conflicts. A count only one side changed takes
+/// that side's value, removal included; one both sides changed takes the
+/// larger, which tolerates a clone more rather than fail a clean tree. `head`
+/// and `scan` survive when both sides agree on them.
+pub fn merge(base: &BaselineFile, ours: &BaselineFile, theirs: &BaselineFile) -> BaselineFile {
+    let count = |file: &BaselineFile, fp: &str| file.fingerprints.get(fp).copied().unwrap_or(0);
+    let mut fingerprints = BTreeMap::new();
+    for fp in ours.fingerprints.keys().chain(theirs.fingerprints.keys()) {
+        let (was, a, b) = (count(base, fp), count(ours, fp), count(theirs, fp));
+        let merged = match (a == was, b == was) {
+            (true, _) => b,
+            (false, true) => a,
+            (false, false) => a.max(b),
+        };
+        if merged > 0 {
+            fingerprints.insert(fp.clone(), merged);
+        }
+    }
+    let agreed = |x: &Option<String>, y: &Option<String>| x.clone().filter(|_| x == y);
+    BaselineFile {
+        version: BASELINE_VERSION,
+        head: agreed(&ours.head, &theirs.head),
+        scan: agreed(&ours.scan, &theirs.scan),
+        fingerprints,
+    }
+}
+
+/// The git merge driver: merge the baselines at `ours` and `theirs` over
+/// `base` and write the result to `ours`, which git takes as the merge. An
+/// empty `base`, from a file both sides added, is no baseline. A side that
+/// does not parse fails the merge and leaves `ours` as it was.
+pub fn merge_files(base: &Path, ours: &Path, theirs: &Path) -> Result<(), BaselineError> {
+    let empty = std::fs::metadata(base)
+        .map(|m| m.len() == 0)
+        .unwrap_or(true);
+    let base = match empty {
+        true => BaselineFile::empty(),
+        false => load(base)?,
+    };
+    let merged = merge(&base, &load(ours)?, &load(theirs)?);
+    save(ours, &merged)
 }
 
 /// Compute one fingerprint per clone, in clone order. Reads fragment snippets
@@ -578,5 +623,86 @@ mod tests {
         let mut stats = one_clone_stats();
         let err = apply(&mut clones, &mut stats, &dir.join("nope.json"), false).unwrap_err();
         assert!(matches!(err, BaselineError::Missing { .. }));
+    }
+
+    fn baseline_of(entries: &[(&str, u64)]) -> BaselineFile {
+        let mut file = BaselineFile::empty();
+        for (fp, count) in entries {
+            file.fingerprints.insert(fp.to_string(), *count);
+        }
+        file
+    }
+
+    #[test]
+    fn merge_keeps_what_each_side_added() {
+        let base = baseline_of(&[("a", 1)]);
+        let ours = baseline_of(&[("a", 1), ("b", 1)]);
+        let theirs = baseline_of(&[("a", 1), ("c", 1)]);
+        assert_eq!(
+            merge(&base, &ours, &theirs).fingerprints,
+            baseline_of(&[("a", 1), ("b", 1), ("c", 1)]).fingerprints
+        );
+    }
+
+    #[test]
+    fn merge_drops_what_either_side_removed() {
+        let base = baseline_of(&[("a", 1), ("b", 2)]);
+        let ours = baseline_of(&[("b", 2)]);
+        let theirs = baseline_of(&[("a", 1), ("b", 1)]);
+        assert_eq!(
+            merge(&base, &ours, &theirs).fingerprints,
+            baseline_of(&[("b", 1)]).fingerprints
+        );
+    }
+
+    #[test]
+    fn merge_takes_the_larger_count_when_both_sides_changed_one() {
+        let base = baseline_of(&[("a", 1)]);
+        let ours = baseline_of(&[("a", 3), ("b", 1)]);
+        let theirs = baseline_of(&[("a", 2), ("b", 2)]);
+        assert_eq!(
+            merge(&base, &ours, &theirs).fingerprints,
+            baseline_of(&[("a", 3), ("b", 2)]).fingerprints
+        );
+    }
+
+    #[test]
+    fn merge_keeps_a_head_both_sides_share_and_drops_one_they_disagree_on() {
+        let base = BaselineFile::empty();
+        let mut ours = BaselineFile::empty();
+        let mut theirs = BaselineFile::empty();
+        ours.head = Some("x".into());
+        theirs.head = Some("x".into());
+        ours.scan = Some("s".into());
+        theirs.scan = Some("t".into());
+        let merged = merge(&base, &ours, &theirs);
+        assert_eq!(merged.head.as_deref(), Some("x"));
+        assert_eq!(merged.scan, None);
+    }
+
+    #[test]
+    fn merge_files_writes_ours_and_reads_an_empty_base_as_no_baseline() {
+        let dir = tmp_dir("baseline-merge");
+        let (base, ours, theirs) = (dir.join("base"), dir.join("ours"), dir.join("theirs"));
+        std::fs::write(&base, "").unwrap();
+        save(&ours, &baseline_of(&[("a", 1)])).unwrap();
+        save(&theirs, &baseline_of(&[("b", 1)])).unwrap();
+        merge_files(&base, &ours, &theirs).unwrap();
+        assert_eq!(
+            load(&ours).unwrap().fingerprints,
+            baseline_of(&[("a", 1), ("b", 1)]).fingerprints
+        );
+    }
+
+    #[test]
+    fn merge_files_refuses_a_side_that_is_not_a_baseline() {
+        let dir = tmp_dir("baseline-merge-bad");
+        let (base, ours, theirs) = (dir.join("base"), dir.join("ours"), dir.join("theirs"));
+        save(&base, &BaselineFile::empty()).unwrap();
+        std::fs::write(&ours, "<<<<<<< conflict").unwrap();
+        save(&theirs, &BaselineFile::empty()).unwrap();
+        let err = merge_files(&base, &ours, &theirs).unwrap_err();
+        assert!(matches!(err, BaselineError::Parse { .. }));
+        assert_eq!(std::fs::read_to_string(&ours).unwrap(), "<<<<<<< conflict");
     }
 }
