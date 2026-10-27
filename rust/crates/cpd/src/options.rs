@@ -58,6 +58,8 @@ pub struct Options {
     pub baseline: Option<PathBuf>,
     pub update_baseline: bool,
     pub fail_on_new_clones: Option<u64>,
+    /// `--new-only`, command line only like `--changed`.
+    pub new_only: bool,
     pub fail_on_empty: bool,
     pub baseline_from_ref: Option<String>,
     /// `--changed`, also on when `--changed-only` is.
@@ -288,6 +290,7 @@ impl Options {
                 .or_else(|| config.baseline.clone().map(PathBuf::from)),
             update_baseline: cli.update_baseline,
             fail_on_new_clones: cli.fail_on_new_clones.or(config.fail_on_new_clones),
+            new_only: cli.new_only,
             fail_on_empty: cli.fail_on_empty || config.fail_on_empty.unwrap_or(false),
             baseline_from_ref: cli
                 .baseline_from_ref

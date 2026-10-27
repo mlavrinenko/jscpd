@@ -2924,6 +2924,81 @@ fn console_marks_new_clones() {
     );
 }
 
+#[test]
+fn new_only_reports_just_the_clones_the_baseline_lacks() {
+    let (scan, baseline) = setup_baseline_scan("new-only");
+    run_baseline_cpd(
+        &scan,
+        &baseline,
+        &["--update-baseline", "--reporters", "silent"],
+    );
+    add_new_duplicate(&scan);
+    let report_dir = scan.parent().unwrap().join("report");
+    let output = run_baseline_cpd(
+        &scan,
+        &baseline,
+        &[
+            "--new-only",
+            "--reporters",
+            "json,console",
+            "--no-colors",
+            "--output",
+            report_dir.to_str().unwrap(),
+        ],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "stdout: {stdout}");
+    assert!(stdout.contains("c.js"), "the new clone is listed: {stdout}");
+    assert!(!stdout.contains("a.js"), "the known clone is not: {stdout}");
+    let content = std::fs::read_to_string(report_dir.join("jscpd-report.json")).unwrap();
+    let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
+    let dups = parsed["duplicates"].as_array().unwrap();
+    assert_eq!(dups.len(), 1, "{content}");
+    assert_eq!(dups[0]["isNew"], true);
+    // The statistics stay those of the whole scan.
+    assert_eq!(parsed["statistics"]["total"]["clones"], 2);
+    assert_eq!(parsed["statistics"]["total"]["newClones"], 1);
+}
+
+#[test]
+fn new_only_with_no_new_clone_reports_none_and_passes_the_gate() {
+    let (scan, baseline) = setup_baseline_scan("new-only-none");
+    run_baseline_cpd(
+        &scan,
+        &baseline,
+        &["--update-baseline", "--reporters", "silent"],
+    );
+    let output = run_baseline_cpd(
+        &scan,
+        &baseline,
+        &[
+            "--new-only",
+            "--fail-on-new-clones",
+            "--exit-code",
+            "--reporters",
+            "console",
+            "--no-colors",
+        ],
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "stdout: {stdout}");
+    assert!(
+        !stdout.contains("a.js"),
+        "the known clone is not listed: {stdout}"
+    );
+}
+
+#[test]
+fn new_only_requires_a_baseline() {
+    let output = run_cpd(["--new-only", "--reporters", "silent", "."]).expect("cpd binary");
+    assert_eq!(output.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--new-only requires --baseline"),
+        "got: {stderr}"
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Ephemeral baseline from a git ref (--baseline-from-ref, issue #944 phase 2)
 // ---------------------------------------------------------------------------

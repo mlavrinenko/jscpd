@@ -114,6 +114,7 @@ jscpd scans several paths together, as one project. When one path lies inside an
 | `--baseline` | | Clone baseline file (e.g. `.jscpd-baseline.json`): clones whose fingerprint is absent from it are reported as new. See [Baseline](#baseline) | — |
 | `--update-baseline` | | Rewrite the baseline file from the current run, creating it if missing (requires `--baseline` or `--changed`) | off |
 | `--fail-on-new-clones` | | Exit 1 when more than N new clones are found (`--fail-on-new-clones` alone means N=0; requires `--baseline`, `--baseline-from-ref` or `--changed`) | — |
+| `--new-only` | | Report only the clones absent from the baseline; the statistics stay those of the whole scan (requires `--baseline`, `--baseline-from-ref` or `--changed`). See [Baseline](#baseline) | off |
 | `--fail-on-empty` | | Exit 1 when the scan analyzes no files: the paths exist but nothing matched the `--format`, `--ignore` and `--pattern` filters, or every file was below `--min-tokens`. See [Exit codes](#exit-codes) | off |
 | `--baseline-from-ref` | | Compare against an ephemeral baseline built from a git ref's tree (e.g. `origin/main`). Conflicts with `--baseline` | — |
 | `--changed` | | Report only the clones of the files git lists as changed, compared with every file of the scan. The first run saves the clones of HEAD as the baseline. See [Changed files](#changed-files) | off |
@@ -333,6 +334,8 @@ jscpd --baseline .jscpd-baseline.json --fail-on-new-clones 3 .
 # Stateless variant for PR gates: compare against a git ref instead of a file
 jscpd --baseline-from-ref origin/main --fail-on-new-clones .
 ```
+
+Every reporter lists the clones the baseline accepts beside the new ones. `--new-only` leaves them out, so a gate prints just what it fails on. The statistics, the `newClones` count included, stay those of the whole scan, and `--exit-code` fails on a new clone only.
 
 `--baseline-from-ref` checks the base ref's tree out into a temporary detached worktree, scans it with the same configuration, and compares fingerprints in memory. It costs a second scan of the corpus; the committed file needs only one. In CI, fetch the ref first (`fetch-depth: 0` or `git fetch origin main`).
 

@@ -408,6 +408,12 @@ pub struct Cli {
     #[arg(long, value_name = "N", num_args(0..=1), default_missing_value = "0")]
     pub fail_on_new_clones: Option<u64>,
 
+    /// Report only the clones absent from the baseline, leaving out the ones
+    /// it accepts; the statistics stay those of the whole scan (requires
+    /// --baseline, --baseline-from-ref or --changed)
+    #[arg(long)]
+    pub new_only: bool,
+
     /// Exit 1 when the scan analyzes no files: the paths exist but nothing
     /// matched the --format, --ignore and --pattern filters, or every file
     /// was below --min-tokens

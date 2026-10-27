@@ -61,6 +61,7 @@ struct MergedConfig {
     baseline: Option<String>,
     update_baseline: bool,
     fail_on_new_clones: Option<u64>,
+    new_only: bool,
     fail_on_empty: bool,
     baseline_from_ref: Option<String>,
     changed: bool,
@@ -124,6 +125,7 @@ impl MergedConfig {
                 .map(|p| p.to_string_lossy().to_string()),
             update_baseline: opts.update_baseline,
             fail_on_new_clones: opts.fail_on_new_clones,
+            new_only: opts.new_only,
             fail_on_empty: opts.fail_on_empty,
             baseline_from_ref: opts.baseline_from_ref.clone(),
             changed: opts.changed,
@@ -510,6 +512,8 @@ fn validate_baseline_flags(opts: &Options) -> Result<(), Exit> {
         Some(
             "--fail-on-new-clones requires --baseline <file>, --baseline-from-ref <ref> or --changed",
         )
+    } else if opts.new_only && !has_file && !has_ref {
+        Some("--new-only requires --baseline <file>, --baseline-from-ref <ref> or --changed")
     } else {
         None
     };
@@ -740,6 +744,10 @@ fn detect_and_report(
         statistics = cpd_finder::statistics::compute(&run_result.sources, &clones);
         cpd_reporter::baseline::apply_to_stats(&clones, &mut statistics);
     }
+    // The statistics, new counts included, stay those of the scan.
+    if opts.new_only {
+        clones.retain(|c| c.is_new);
+    }
     let blame_data = blame(opts, paths, &mut clones);
     // Captured after blame, so its time is included.
     let elapsed = timer.elapsed();
@@ -913,6 +921,7 @@ fn scan_options(opts: &Options) -> serde_json::Value {
         "baseline",
         "update_baseline",
         "fail_on_new_clones",
+        "new_only",
         "fail_on_empty",
         "baseline_from_ref",
         "changed",
