@@ -1,6 +1,7 @@
 use crate::context::ReportContext;
 use crate::reporter::{Reporter, ReporterError, ReporterOptions};
 use crate::shared::{Style, extract_lines, read_file_cached, write_report_file};
+use cpd_core::classes::CloneClass;
 use cpd_core::models::CpdClone;
 use serde_json::json;
 use std::collections::HashMap;
@@ -102,6 +103,26 @@ pub fn clone_to_dup(
     duplicate
 }
 
+/// One entry of `classes` in `jscpd-report.json`: every copy of one block,
+/// with the text, size and kind of `representative`, its largest pair as
+/// [`clone_to_dup`] wrote it.
+fn class_to_json(class: &CloneClass, representative: &serde_json::Value) -> serde_json::Value {
+    let fragments: Vec<serde_json::Value> = class
+        .fragments
+        .iter()
+        .map(|f| json!({"name": f.source_id, "start": f.start, "end": f.end}))
+        .collect();
+    json!({
+        "format": representative["format"],
+        "lines": representative["lines"],
+        "fragment": representative["fragment"],
+        "tokens": class.tokens,
+        "kind": representative["kind"],
+        "isNew": class.is_new,
+        "fragments": fragments,
+    })
+}
+
 /// The keys of a near-miss clone: its `similarity` and the `method` that
 /// found it. The MCP server writes them the same way.
 pub fn add_near_miss(value: &mut serde_json::Value, clone: &CpdClone) {
@@ -130,9 +151,15 @@ impl Reporter for JsonReporter {
             .map(|c| clone_to_dup(c, self.blame, &mut file_cache))
             .collect();
 
+        let classes: Vec<serde_json::Value> = cpd_core::classes::group(clones)
+            .iter()
+            .map(|class| class_to_json(class, &duplicates[class.representative]))
+            .collect();
+
         let mut value = json!({
             "statistics": ctx.stats,
             "duplicates": duplicates,
+            "classes": classes,
         });
         // Additive only: the key is absent unless --summary was requested,
         // so the report schema is unchanged for existing consumers.
@@ -158,7 +185,8 @@ mod tests {
     use super::*;
     use crate::reporter::ReporterOptions;
     use crate::shared::fixtures::{
-        empty_ctx, empty_stats, make_clone, make_clone_with_locations, report_to_file, tmp_dir,
+        empty_ctx, empty_stats, make_clone, make_clone_with_lines, make_clone_with_locations,
+        report_to_file, tmp_dir,
     };
     use cpd_core::models::{BlameEntry, Location, Statistics};
 
@@ -366,6 +394,37 @@ mod tests {
         let parsed = parse_json_report(&content);
         assert_eq!(parsed["duplicates"][0]["kind"], "renamed");
         assert_eq!(parsed["duplicates"][1]["kind"], "exact");
+    }
+
+    #[test]
+    fn json_classes_join_the_pairs_of_one_block() {
+        let mut biggest = make_clone_with_lines("a.js", "c.js", 1, 12, 80);
+        biggest.kind = cpd_core::models::CloneKind::Renamed;
+        let mut new_pair = make_clone_with_lines("a.js", "b.js", 1, 12, 60);
+        new_pair.is_new = true;
+        let apart = make_clone_with_lines("d.js", "e.js", 3, 4, 20);
+        let content = run_json_report(&[new_pair, biggest, apart], false);
+        let parsed = parse_json_report(&content);
+        assert_eq!(parsed["duplicates"].as_array().unwrap().len(), 3);
+        let classes = parsed["classes"].as_array().unwrap();
+        assert_eq!(classes.len(), 2);
+        let class = &classes[0];
+        assert_eq!(class["tokens"], 80);
+        assert_eq!(class["lines"], 12);
+        assert_eq!(class["kind"], "renamed");
+        assert_eq!(class["format"], "javascript");
+        assert_eq!(class["isNew"], true);
+        assert!(class.get("fragment").is_some());
+        assert_eq!(
+            class["fragments"],
+            serde_json::json!([
+                {"name": "a.js", "start": 1, "end": 12},
+                {"name": "b.js", "start": 1, "end": 12},
+                {"name": "c.js", "start": 1, "end": 12},
+            ])
+        );
+        assert_eq!(classes[1]["isNew"], false);
+        assert_eq!(classes[1]["fragments"].as_array().unwrap().len(), 2);
     }
 
     #[test]

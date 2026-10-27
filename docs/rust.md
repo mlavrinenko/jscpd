@@ -163,6 +163,8 @@ jscpd scans several paths together, as one project. When one path lies inside an
 
 The `xml` report is always well-formed XML 1.0: a `]]>` inside a snippet is split across two CDATA sections, and characters XML cannot represent at all (NUL, ANSI escapes, form feeds and other control bytes, U+FFFE/U+FFFF) are replaced with U+FFFD in snippets and file paths, so `xmllint` and XML parsers accept reports built from files that contain them. See [`fixtures/xml-report-demo`](../fixtures/xml-report-demo/README.md).
 
+The `json` report lists each clone pair under `duplicates`, and under `classes` it joins the pairs of one block: a block pasted into four files is three or more pairs and one class. Pairs join when they share a copy, a copy being a file and the lines it spans. Each class has the `format`, `lines`, `fragment` text and `kind` of its largest pair, its `tokens`, `isNew` when any of its pairs is new, and `fragments`, every copy once as `name`, `start` and `end`, sorted by file and line. Classes come largest first.
+
 File reporters write into the `--output` directory (default `report/`) using the `jscpd-report.*` prefix (e.g. `jscpd-report.json`, `jscpd-report.sarif`), or the name `--report-name` gives, so several tools can write into one directory. The badge (`jscpd-badge.svg`, `jscpd-lines-badge.svg`), OpenMetrics (`jscpd-metrics.txt`) and CodeClimate (`gl-code-quality-report.json`) files keep their names, and so do the reports of `--dashboard`, `--health`, `--dead-code` and `--compare`, which warn when the flag is given.
 
 ### Summary
